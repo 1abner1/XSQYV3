@@ -353,8 +353,223 @@ def actor_critic(state, action, reward, next_state, done, model, optimizer, gamm
 
     return actor_loss.item(), critic_loss.item()
 
+#多演员多评论家网络
+def multi_actor_critic_training(state_dim, action_dim, n_actors=3, n_critics=3, gamma=0.99, lr=1e-3, episodes=1000,
+                                batch_size=32, memory_capacity=10000):
+    """
+    基于多演员（Actor）和多评论家（Critic）的强化学习训练函数。
+    参数:
+    - state_dim (int): 状态空间维度
+    - action_dim (int): 动作空间维度
+    - n_actors (int): 演员数量（默认3个）
+    - n_critics (int): 评论家数量（默认3个）
+    - gamma (float): 折扣因子（默认0.99）
+    - lr (float): 学习率（默认1e-3）
+    - episodes (int): 训练回合数（默认1000）
+    - batch_size (int): 每次训练的样本大小（默认32）
+    - memory_capacity (int): 经验池容量（默认10000）
+    """
 
-# 示例：初始化模型并进行训练
+    # 定义神经网络模型
+    class Actor(nn.Module):
+        def __init__(self, state_dim, action_dim):
+            super(Actor, self).__init__()
+            self.fc1 = nn.Linear(state_dim, 128)
+            self.fc2 = nn.Linear(128, 64)
+            self.fc3 = nn.Linear(64, action_dim)
+            self.softmax = nn.Softmax(dim=-1)  # 用于生成概率分布
+
+        def forward(self, state):
+            x = torch.relu(self.fc1(state))
+            x = torch.relu(self.fc2(x))
+            action_probs = self.softmax(self.fc3(x))
+            return action_probs
+
+    class Critic(nn.Module):
+        def __init__(self, state_dim):
+            super(Critic, self).__init__()
+            self.fc1 = nn.Linear(state_dim, 128)
+            self.fc2 = nn.Linear(128, 64)
+            self.fc3 = nn.Linear(64, 1)  # 输出一个值，评估状态的价值
+
+        def forward(self, state):
+            x = torch.relu(self.fc1(state))
+            x = torch.relu(self.fc2(x))
+            value = self.fc3(x)
+            return value
+
+    class ExperienceReplay:
+        def __init__(self, capacity=10000):
+            self.capacity = capacity
+            self.buffer = deque(maxlen=capacity)
+
+        def push(self, state, action, reward, next_state, done):
+            self.buffer.append((state, action, reward, next_state, done))
+
+        def sample(self, batch_size):
+            return random.sample(self.buffer, batch_size)
+
+        def size(self):
+            return len(self.buffer)
+
+    # 初始化多演员、多评论家及其他组件
+    actors = [Actor(state_dim, action_dim) for _ in range(n_actors)]
+    critics = [Critic(state_dim) for _ in range(n_critics)]
+    main_critic = Critic(state_dim)
+
+    actor_optimizers = [optim.Adam(actor.parameters(), lr=lr) for actor in actors]
+    critic_optimizers = [optim.Adam(critic.parameters(), lr=lr) for critic in critics]
+    main_critic_optimizer = optim.Adam(main_critic.parameters(), lr=lr)
+
+    memory = ExperienceReplay(capacity=memory_capacity)
+
+    def normalize(values, min_val=0.0, max_val=1.0):
+        """将指标值归一化到 [min_val, max_val] 范围内"""
+        return (values - min_val) / (max_val - min_val)
+
+    def select_action(state, actor_idx):
+        """根据演员选择策略"""
+        state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+        action_probs = actors[actor_idx](state)
+        action = torch.multinomial(action_probs, 1).item()  # 根据概率分布选择动作
+        return action
+
+    def evaluate_action(state, action, critic_idx):
+        """根据评论家评估动作的价值"""
+        state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+        value = critics[critic_idx](state)
+        return value
+
+    def update_main_critic():
+        """更新主评论家网络"""
+        if len(memory) > 0:
+            batch = memory.sample(batch_size)
+            states, actions, rewards, next_states, dones = zip(*batch)
+
+            states = torch.tensor(states, dtype=torch.float32)
+            next_states = torch.tensor(next_states, dtype=torch.float32)
+            rewards = torch.tensor(rewards, dtype=torch.float32)
+            dones = torch.tensor(dones, dtype=torch.float32)
+
+            values = main_critic(states)
+            next_values = main_critic(next_states)
+
+            target_values = rewards + (1 - dones) * gamma * next_values.squeeze()
+
+            # 计算损失并优化主评论家
+            critic_loss = nn.MSELoss()(values.squeeze(), target_values)
+            main_critic_optimizer.zero_grad()
+            critic_loss.backward()
+            main_critic_optimizer.step()
+
+    def update_actors(state, action, actor_idx):
+        """根据评论家的反馈更新演员策略"""
+        state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+        action = torch.tensor(action, dtype=torch.long).unsqueeze(0)
+        action_probs = actors[actor_idx](state)
+
+        log_prob = torch.log(action_probs[0, action])  # 选择的动作的对数概率
+        value = main_critic(state)  # 主评论家的价值估计
+
+        # 计算优势函数，使用评论家网络的反馈
+        advantage = value - main_critic(state)
+        actor_loss = -log_prob * advantage.detach()  # 使用策略梯度方法进行优化
+
+        actor_optimizers[actor_idx].zero_grad()
+        actor_loss.backward()
+        actor_optimizers[actor_idx].step()
+
+    def update_critics(state, reward, next_state, done, critic_idx):
+        """根据奖励和下一个状态更新评论家网络"""
+        state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+        next_state = torch.tensor(next_state, dtype=torch.float32).unsqueeze(0)
+        reward = torch.tensor(reward, dtype=torch.float32)
+        done = torch.tensor(done, dtype=torch.float32)
+
+        value = critics[critic_idx](state)
+        next_value = critics[critic_idx](next_state)
+
+        # 计算目标值
+        target_value = reward + (1 - done) * gamma * next_value
+
+        # 计算评论家的损失并优化
+        critic_loss = nn.MSELoss()(value.squeeze(), target_value)
+        critic_optimizers[critic_idx].zero_grad()
+        critic_loss.backward()
+        critic_optimizers[critic_idx].step()
+
+    # 训练过程
+    for episode in range(episodes):
+        state = np.random.rand(state_dim)  # 随机初始化状态
+        done = False
+        total_reward = 0
+
+        while not done:
+            # 每个演员选择动作
+            actions = [select_action(state, actor_idx) for actor_idx in range(n_actors)]
+
+            # 每个演员执行并得到奖励
+            action = random.choice(actions)  # 随机选择一个演员的动作
+            reward = np.random.rand()  # 假设奖励是随机的
+            next_state = np.random.rand(state_dim)  # 假设下一个状态是随机的
+            done = random.choice([True, False])  # 假设是否完成是随机的
+
+            # 存储经验
+            memory.push(state, action, reward, next_state, done)
+
+            # 更新评论家和演员网络
+            for actor_idx in range(n_actors):
+                update_actors(state, action, actor_idx)
+
+            for critic_idx in range(n_critics):
+                update_critics(state, reward, next_state, done, critic_idx)
+
+            # 更新主评论家
+            update_main_critic()
+
+            total_reward += reward
+            state = next_state  # 更新状态
+
+        print(f"Episode {episode + 1}/{episodes}, Total Reward: {total_reward}")
+#判别器一，决策模式选择
+def decision_maker(error_rate, risk_value, reward_value):
+    """
+    根据错误率、风险值和奖励值来选择决策模式。
+    如果综合值低于0.5，则选择知识体决策，否则返回动态决策。
+
+    参数:
+    - error_rate (float): 错误率 (0到1之间)
+    - risk_value (float): 风险值 (0到1之间)
+    - reward_value (float): 奖励值 (0到1之间)
+
+    返回:
+    - decision (dict or str): 返回决策模式
+    """
+
+    # 知识体决策
+    knowledge_base_decision = {
+        "obstacle": "turn_right_30_degrees_and_move_5m",
+        "target": "move_straight_at_average_speed",
+        "dynamic_obstacle": "intercept_continuously"
+    }
+
+    # 计算判别器的综合值
+    weight_error = 0.3
+    weight_risk = 0.4
+    weight_reward = 0.3
+
+    discriminative_value = (1 - error_rate) * weight_error + (1 - risk_value) * weight_risk + reward_value * weight_reward
+
+    # 如果判别器的综合值低于0.5，选择知识体决策
+    if discriminative_value < 0.5:
+        print(f"Decision Mode: Knowledge-Based")
+        return knowledge_base_decision
+    else:
+        print(f"Decision Mode: Dynamic")
+        # 假设动态决策模式是由其他策略或算法实现的
+        return "dynamic_decision_algorithm"
+
+# 初始化模型并进行训练
 def train_actor_critic():
     # 环境参数
     input_size = 4  # 假设状态空间维度为4
@@ -377,3 +592,4 @@ def train_actor_critic():
     actor_loss, critic_loss = actor_critic(state, action, reward, next_state, done, model, optimizer)
 
     print(f"Actor Loss: {actor_loss}, Critic Loss: {critic_loss}")
+
