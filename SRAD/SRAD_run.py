@@ -38,7 +38,7 @@ class SafetyModule:
     def evaluate_risk(self, state, external_factors):
         """
         根据外部因素和当前状态评估风险等级
-        这里只是一个简单的示例，我们假设通过一些简单的阈值来评估风险等级
+        通过一些简单的阈值来评估风险等级
         """
         if external_factors['obstacle_proximity'] < 0.5:  # 障碍物接近，判定为高风险
             risk_level = "high"
@@ -189,7 +189,7 @@ class ActorCritic(nn.Module):
 
         return direction
 
-    # 示例：使用摄像头获取图像并做出决策
+    # 使用摄像头获取图像并做出决策
     def run_drone():
         # 初始化摄像头
         camera = cv2.VideoCapture(0)

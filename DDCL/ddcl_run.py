@@ -4,13 +4,75 @@ import torch
 import torch.nn as nn
 from torch.distributions import MultivariateNormal
 #感知阶段
-class Feature_Gain()
-     def SR_Fusion(self):
-        pass
-     def Graph_Bulid(self):
-        pass
-    def Gan(self):
-        pass
+def extract_fused_features(real_image, fake_image, input_channels=3, feature_dim=64):
+    """
+    提取融合后的特征向量。
+
+    :param real_image: 真实场景图像，形状为 [batch_size, 3, 32, 32]
+    :param fake_image: 虚拟场景图像，形状为 [batch_size, 3, 32, 32]
+    :param input_channels: 图像通道数，默认为3（RGB图像）
+    :param feature_dim: 最终输出的特征向量维度，默认为64
+    :return: 融合后的特征向量，形状为 [batch_size, feature_dim]
+    """
+
+    # 定义卷积神经网络部分
+    class FeatureFusionNetwork(nn.Module):
+        def __init__(self, input_channels=3, feature_dim=64):
+            super(FeatureFusionNetwork, self).__init__()
+
+            # 定义卷积神经网络结构
+            self.conv1 = nn.Conv2d(input_channels, 32, kernel_size=3, stride=1, padding=1)
+            self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
+            self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
+
+            # 全连接层，映射到一个64维的特征向量
+            self.fc1 = nn.Linear(128 * 32 * 32, 512)  # 假设输入图像大小为 32x32
+            self.fc2 = nn.Linear(512, feature_dim)
+
+            # 融合部分
+            self.fc_fusion = nn.Linear(2 * feature_dim, feature_dim)
+
+        def forward(self, real_image, fake_image):
+            # 处理真实场景图像
+            x_real = F.relu(self.conv1(real_image))
+            x_real = F.relu(self.conv2(x_real))
+            x_real = F.relu(self.conv3(x_real))
+            x_real = x_real.view(x_real.size(0), -1)  # 展平
+            x_real = F.relu(self.fc1(x_real))
+            real_features = F.relu(self.fc2(x_real))
+
+            # 处理虚拟场景图像
+            x_fake = F.relu(self.conv1(fake_image))
+            x_fake = F.relu(self.conv2(x_fake))
+            x_fake = F.relu(self.conv3(x_fake))
+            x_fake = x_fake.view(x_fake.size(0), -1)  # 展平
+            x_fake = F.relu(self.fc1(x_fake))
+            fake_features = F.relu(self.fc2(x_fake))
+
+            # 融合两个特征向量
+            combined_features = torch.cat((real_features, fake_features), dim=1)  # 拼接
+            fused_features = F.relu(self.fc_fusion(combined_features))
+
+            return fused_features
+
+    # 初始化模型
+    model = FeatureFusionNetwork(input_channels=input_channels, feature_dim=feature_dim)
+
+    # 前向传播，得到融合后的特征向量
+    fused_features = model(real_image, fake_image)
+
+    return fused_features
+
+
+# 示例
+# if __name__ == "__main__":
+#     # 假设输入图像大小为 [batch_size, 3, 32, 32]，例如 batch_size=8
+#     real_image = torch.randn(8, 3, 32, 32)  # 8张真实图像
+#     fake_image = torch.randn(8, 3, 32, 32)  # 8张虚拟图像
+#
+#     # 提取融合后的特征
+#     fused_features = extract_fused_features(real_image, fake_image)
+#     print(fused_features.shape)  # 输出形状应该是 [8, 64]，即8个样本，64维特征向量
 
 #决策阶段
 class Policy_Learning(nn.Module):
@@ -44,22 +106,8 @@ class Policy_Learning(nn.Module):
         action_logprob = dist.log_prob(action)  # 这个动作概率就相当于优先经验回放的is_weight
 
     return action.detach(), action_logprob.detach()
-class Rule_Control():
-      pass
 
-class Discriminator_1():
-      pass
-
-
-class Discriminator_2():
-    pass
-
-#执行阶段
-class Execution_Phase()
-    def main(self):
-        pass
-
-
+#语义特征知识库，存储文本知识
 def store_text_data(text, file_name):
     """
     将文本数据存储到指定的文件中。
@@ -75,9 +123,6 @@ def store_text_data(text, file_name):
         print(f"数据已成功存储到文件 {file_name}")
     except Exception as e:
         print(f"存储文本数据时出错: {e}")
-
-
-import numpy as np
 
 
 def select_best_strategy(strategies, error_weight=0.4, risk_weight=0.3, reward_weight=0.3):
@@ -151,8 +196,8 @@ best_strategy = select_best_strategy(strategies)
 
 print(f"最佳策略是: {best_strategy.name}")
 
-#知识体控制
 
+#知识体控制
 def knowledge_based_control(frame, error_threshold=3000, stop_threshold=5000):
     """
     根据输入的图像数据决定无人车的移动。
@@ -205,7 +250,7 @@ def knowledge_based_control(frame, error_threshold=3000, stop_threshold=5000):
     return steering_angle, speed
 
 
-# 示例：使用摄像头获取图像并做决策
+# 使用摄像头获取图像并做决策
 def run_car():
     # 初始化摄像头
     camera = cv2.VideoCapture(0)
@@ -226,7 +271,6 @@ def run_car():
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
-
     # 释放资源
     camera.release()
     cv2.destroyAllWindows()

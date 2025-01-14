@@ -280,16 +280,16 @@ def get_args():
     return args
 
 def Agent_Car():
-    num_actions = 2
-    num_feature = 8
-    ppo_epochs = 32
-    mini_batchsize = 8
-    batchsize = 32
-    clip_param =0.01
-    vf_coef = 0.001
-    ent_coef = 0.002
-    max_grad_norm = 0.03
-    target_kl = 0.04
+    num_actions = 2  #动作数量
+    num_feature = 8  #特征数量
+    ppo_epochs = 32  #回合次数
+    mini_batchsize = 8  #最小批量大小
+    batchsize = 32      #批量大小
+    clip_param =0.01    # PPO算法中的裁剪阈值，控制策略的更新幅度
+    vf_coef = 0.001     # PPO算法中的裁剪阈值，控制策略的更新幅度
+    ent_coef = 0.002     # 熵损失的权重，用于控制探索与利用之间的平衡
+    max_grad_norm = 0.03  # 最大梯度裁剪值，用于防止梯度爆炸
+    target_kl = 0.04      # 目标KL散度，用于控制PPO中策略更新的最大允许变化
     model_Gru = GRUActorCritic(num_actions, num_feature)
     optimizer = optim.Adam(model_Gru.parameters(), lr=0.003)
     Car_agent = PPO(model_Gru, optimizer, ppo_epochs, mini_batchsize, batchsize, clip_param, vf_coef, ent_coef, max_grad_norm, target_kl)
@@ -436,16 +436,16 @@ def fusion_sensor_date(obs_list):
     # ------------------------融合感知数据------------------
 
 def random_move():
-    # n_agents = obs_list[0].shape[0]
-    # for j in range(100):
-    #     d_action, c_action = None, None
-    #     n_agents = 1
-    #     if d_action_size:
-    #         d_action = np.random.randint(0, d_action_size, size=n_agents)
-    #         d_action = np.eye(d_action_size, dtype=np.int32)[d_action]
-    #     if c_action_size:
-    #         c_action = np.random.randn(n_agents, c_action_size)
-    #     obs_list, reward, done, max_step = env.step(d_action, c_action)  # 环境step
+    n_agents = obs_list[0].shape[0]
+    for j in range(100):
+        d_action, c_action = None, None
+        n_agents = 1
+        if d_action_size:
+            d_action = np.random.randint(0, d_action_size, size=n_agents)
+            d_action = np.eye(d_action_size, dtype=np.int32)[d_action]
+        if c_action_size:
+            c_action = np.random.randn(n_agents, c_action_size)
+        obs_list, reward, done, max_step = env.step(d_action, c_action)  # 环境step
     pass
 
 def env_rest_image_conv(env_reset_state_image):
