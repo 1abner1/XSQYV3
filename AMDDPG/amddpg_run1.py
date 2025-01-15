@@ -50,7 +50,7 @@ def vido_show(video_path):
     cap.release()
     cv2.destroyAllWindows()
 
-# 1.通过deeplabv3 获得语义分割图像，视觉语义空间构建
+# 通过deeplabv3 获得语义分割图像，获得视觉语义空间
 
 MODEL_NAME = 'https://tfhub.dev/tensorflow/deeplabv3/1'
 model = tf.saved_model.load(MODEL_NAME)
@@ -65,13 +65,13 @@ def load_and_preprocess_image(image_path):
     """
     # 读取图像
     image = cv2.imread(image_path)
-    # unityBGR转换为RGB
+    # 转换为RGB
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     # 调整大小
     image = cv2.resize(image, (84, 84))
     # 标准化（将值缩放到[0, 1]范围）
     image = image / 255.0
-    # 扩展维度（Batch维度） 适应感受野大小
+    # 扩展维度（Batch维度）
     image = np.expand_dims(image, axis=0)
     return image
 
@@ -84,7 +84,7 @@ def predict(image):
     Returns:
         np.array: 预测的类别掩码
     """
-    # 通过模型对图像进行分割，并分割的区域所对应的实体进行预测
+    # 通过模型进行预测
     input_tensor = tf.convert_to_tensor(image, dtype=tf.float32)
     output = model(input_tensor)
     output = output['default'][0]  # 获取模型输出
@@ -103,7 +103,7 @@ def display_results(original_image, predicted_mask):
     # 重新调整预测掩码大小
     predicted_mask_resized = cv2.resize(predicted_mask, (original_image.shape[1], original_image.shape[0]), interpolation=cv2.INTER_NEAREST)
 
-    # 环境及实体类别的颜色表达的定义
+    # 颜色映射
     label_colormap = np.array([
         [0, 0, 0],      # 0:背景
         [0, 0, 128],    # 1:障碍物1
@@ -115,7 +115,7 @@ def display_results(original_image, predicted_mask):
         # 可以添加更多类别
     ])
 
-    # 为每个实体类别映射颜色
+    # 为每个类别映射颜色
     segmented_image = label_colormap[predicted_mask_resized]
 
     # 显示结果
@@ -155,12 +155,12 @@ def segment_image(image_path=None, video_source=0):
             ret, frame = cap.read()
             if not ret:
                 break
-            # 图像大小，颜色预处理
+            # 图像预处理
             image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             image_resized = cv2.resize(image, (84, 84))
             image_normalized = image_resized / 255.0
             image_input = np.expand_dims(image_normalized, axis=0)
-            # 实体类别预测
+            # 预测
             prediction = predict(image_input)
             # 显示结果
             display_results(frame, prediction)
@@ -172,10 +172,10 @@ def segment_image(image_path=None, video_source=0):
         cv2.destroyAllWindows()
 
 #使用图片进行语义分割
-image_path = "image.jpg"  # 替换为你自己的图片路径
+image_path = "your_image.jpg"  # 替换为你自己的图片路径
 segment_image(image_path=image_path)  # 调用图片分割
 
-# 使用摄像头进行实时语义分割
+# 示例：使用摄像头进行实时语义分割
 segment_image(video_source=0)  # 如果需要使用摄像头进行视频流分割
 
 #灰度特征语义空间， Canny 边缘检测: canny 边缘检测方法需要进行高斯滤波，以减少图片噪声的影响。
@@ -188,7 +188,7 @@ def edge_detection(image_path=None, video_source=0):
     """
     def process_image(image):
         """ 对图像进行边缘检测 """
-        # 使用Canny边缘检测,100对应的是黑色，进行标准化，映射到100，200 所表达的灰度共享语义空间，以减少虚实灰度差异
+        # 使用Canny边缘检测
         edges = cv2.Canny(image, 100, 200)  # 100 和 200 为低阈值和高阈值
         return edges
 
@@ -208,6 +208,7 @@ def edge_detection(image_path=None, video_source=0):
         plt.imshow(edges, cmap='gray')
         plt.title("Edge Detection")
         plt.axis('off')
+
         plt.show()
 
     else:
@@ -218,13 +219,17 @@ def edge_detection(image_path=None, video_source=0):
             ret, frame = cap.read()
             if not ret:
                 break
+
             # 转为灰度图像
             gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
             # 边缘检测
             edges = process_image(gray_frame)
+
             # 显示结果
             cv2.imshow("Original", frame)
             cv2.imshow("Edge Detection", edges)
+
             # 按键 'q' 退出
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -233,12 +238,10 @@ def edge_detection(image_path=None, video_source=0):
         cv2.destroyAllWindows()
 
 # 使用图片进行边缘检测
-image_path = "image.jpg"  # 替换为你自己的图片路径
+image_path = "your_image.jpg"  # 替换为你自己的图片路径
 edge_detection(image_path=image_path)  # 调用图片边缘检测
 # 使用摄像头进行实时边缘检测
 edge_detection(video_source=0)  # 如果需要使用摄像头进行视频流分割
-
-# 深度语义特征空间
 
 
 # 构建场景特征语义空间
@@ -266,11 +269,11 @@ def build_scene_graph(image_path, model=None, device=None):
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     pil_image = Image.fromarray(image_rgb)
 
-    # 把图像的像素值转换为torch可计算的tensor向量
+    # 图像预处理
     transform = transforms.Compose([transforms.ToTensor()])
     image_tensor = transform(pil_image).unsqueeze(0).to(device)
 
-    # 预测图像实体类别
+    # 预测物体
     with torch.no_grad():
         predictions = model(image_tensor)
 
@@ -279,13 +282,13 @@ def build_scene_graph(image_path, model=None, device=None):
     boxes = predictions[0]['boxes']
     scores = predictions[0]['scores']
 
-    # 设置阈值，过滤低置信度的检测结果，躲避关系，搜索关系，定义一个函数获取关系，给一个向量知道物体直接的关系。
+    # 设置阈值，过滤低置信度的检测结果
     threshold = 0.5
     high_score_indices = torch.nonzero(scores > threshold).squeeze(1)
     labels = labels[high_score_indices]
     boxes = boxes[high_score_indices]
 
-    # 相关的物体标签, 改成和场景相关的
+    # 加载相关的物体标签
     coco_names = [
         "N/A", "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck",
         "boat", "traffic light", "fire hydrant", "N/A", "stop sign", "parking meter", "bench",
@@ -313,7 +316,7 @@ def build_scene_graph(image_path, model=None, device=None):
             'bbox': [x1, y1, x2, y2]
         })
 
-    # 场景图矩阵形式的存储和表示
+    # 可视化结果
     plt.figure(figsize=(12, 12))
     plt.imshow(image_rgb)
     for item in scene_graph:
@@ -325,20 +328,21 @@ def build_scene_graph(image_path, model=None, device=None):
 
     return scene_graph
 
-# 场景图矩阵的实列化构建
+# 构建场景图
 image_path = "image.jpg"  # 替换为你自己的图片路径
 scene_graph = build_scene_graph(image_path=image_path)
 
-# 构建行为特征语义空间，定义行为有哪些？路径的行为策略特征，避障行为特征语义空间，定义避障行为特征语义空间
-# 补充到终点的规则是避障行为规则来实现，根据历史记录来做的，运行轨迹来实现，共享特征语义空间时序的，行为的路径作为输入，路径作为输入来训练
-# 记录行为共享特征语义空间，作为决策的输入，存储的格式，作为决策的输入。定义一个存储的函数
+# 构建行为特征语义空间
+
 def plot_car_path(global_image_path, path_points, output_image_path=None):
     """
     在全局俯视图上绘制无人车的移动路径。
+
     Args:
         global_image_path (str): 输入的全局俯视图路径。
         path_points (list of tuples): 无人车路径点的列表，每个路径点为 (x, y) 坐标。
         output_image_path (str, optional): 输出路径图的保存路径。如果为None，则不保存。
+
     Returns:
         output_image (numpy.ndarray): 绘制好路径的黑白图像。
     """
@@ -352,12 +356,12 @@ def plot_car_path(global_image_path, path_points, output_image_path=None):
     # 转换路径点为numpy数组，供cv2使用
     path_points = np.array(path_points, dtype=np.int32)
 
-    # 绘制路径（白色曲线），（定义一个函数为存储的帧的，有历史的帧）
+    # 绘制路径（白色曲线）
     if len(path_points) > 1:
         # 使用polylines绘制连续的路径线
         cv2.polylines(output_image, [path_points], isClosed=False, color=255, thickness=2)
 
-    # 将路径图叠加到全局图像上，如果需要可视化
+    # 可选：将路径图叠加到全局图像上，如果需要可视化
     result_image = cv2.cvtColor(output_image, cv2.COLOR_GRAY2BGR)
     result_image = cv2.addWeighted(global_image, 0.5, result_image, 0.5, 0)
 
@@ -372,14 +376,16 @@ def plot_car_path(global_image_path, path_points, output_image_path=None):
 
     return output_image
 
-# 给定路径点和全局图像路径，绘制路径
-# global_image_path = "plan_image.jpg"  # 替换为你自己的全局图像路径
-# path_points = [(100, 200), (150, 250), (200, 300), (250, 350), (300, 400)]  # 示例路径点
+
+# 示例：给定路径点和全局图像路径，绘制路径
+global_image_path = "your_floor_plan_image.jpg"  # 替换为你自己的全局图像路径
+path_points = [(100, 200), (150, 250), (200, 300), (250, 350), (300, 400)]  # 示例路径点
+
 # 调用函数绘制路径
 output_image = plot_car_path(global_image_path, path_points, output_image_path="path_output.jpg")
 
 
-#感知层面的定义需要完善
+
 #决策阶段
 # 超参数定义
 BUFFER_SIZE = int(1e6)    # 经验回放缓冲区的大小
@@ -572,7 +578,7 @@ def train_ddpg(env, n_episodes=1000):
 
     return scores
 
-# 训练DDPG模型
+# 示例：训练DDPG模型
 if __name__ == "__main__":
     # 使用 OpenAI gym 环境进行训练
     env = gym.make('Pendulum-v0 ')  # 你可以替换为适合DDPG的环境
@@ -593,7 +599,7 @@ LR_CRITIC = 1e-3        # Critic网络的学习率，控制权重更新的步伐
 UPDATE_EVERY = 4        # 每隔多少步进行一次网络更新
 NOISE_STD_DEV = 0.2     # 噪声标准差，用于生成Ornstein-Uhlenbeck噪声，增加动作的探索性
 NUM_EPISODES = 1000     # 总训练轮数，指定训练多少个回合
-#actor_local
+
 
 # Actor 网络定义
 class Actor(nn.Module):
@@ -661,9 +667,7 @@ class OUNoise:
         return self.state
 
 
-# DDPG 算法实现   虚拟场景的输入，真实场景的输入，虚实共享特征语义空间的输入，1.真实和虚拟差异大的情况，调整网络结构，本身所带有的泛化功能。2.调整网络结构还是不行优化，我再次调整感知层来进行优化，
-# 问题比较小，调整网络结构。问题比较大，修正调整感知层，重构深度的语义空间，类比的语义空间（定义成两个函数，问题比较小的函数，问题比较比较大的函数）
-# 加上注释
+# DDPG 算法实现
 def ddpg(env, actor_local, actor_target, critic_local, critic_target, actor_optimizer, critic_optimizer,
          memory, noise, n_episodes=1000, gamma=0.99, tau=1e-3, batch_size=64, update_every=4):
     scores = []
@@ -697,7 +701,7 @@ def ddpg(env, actor_local, actor_target, critic_local, critic_target, actor_opti
     return scores
 
 
-def soft_update(local_model, target_model, TAU):
+def soft_update(local_model, target_model, tau):
     for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
         target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
@@ -833,7 +837,7 @@ def load_model(state_size, action_size, device, actor_path, critic_path, actor_t
 
 # 使用全局DDPG进行训练
 if __name__ == "__main__":
-    env = gym.make('gym/unity')  # 可以替换为其他环境
+    env = gym.make('Pendulum-v0')  # 可以替换为其他环境
     global_ddpg(env)
 
 
