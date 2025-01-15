@@ -287,17 +287,9 @@ def build_scene_graph(image_path, model=None, device=None):
 
     # 相关的物体标签, 改成和场景相关的
     coco_names = [
-        "N/A", "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck",
-        "boat", "traffic light", "fire hydrant", "N/A", "stop sign", "parking meter", "bench",
-        "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe",
-        "N/A", "backpack", "umbrella", "N/A", "handbag", "tie", "suitcase", "frisbee", "skis",
-        "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard",
-        "surfboard", "tennis racket", "bottle", "N/A", "wine glass", "cup", "fork", "knife",
-        "spoon", "bowl", "banana", "apple", "sandwich", "orange", "broccoli", "carrot", "hot dog",
-        "pizza", "donut", "cake", "chair", "couch", "potted plant", "bed", "dining table", "toilet",
-        "N/A", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone", "microwave", "oven",
-        "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
-        "hair drier", "toothbrush"
+        "Target", "Agent", "Obstacle1", "Obstacle2", "Obstacle3", "Obstacle4", "Wall", "Cube", "Cylinder",
+        "Large Drone", "Small Drone", "White UAV", "Blue UAV", "Red UAV", "Balloon", "Soccer Ball", "Doll",
+        "Chair", "Table", "Floor", "Ring", "Pedestrian"
     ]
 
     # 构建场景图
@@ -322,7 +314,6 @@ def build_scene_graph(image_path, model=None, device=None):
         plt.text(x1, y1, item['object'], fontsize=12, color='yellow', bbox=dict(facecolor='black', alpha=0.5))
     plt.axis('off')
     plt.show()
-
     return scene_graph
 
 # 场景图矩阵的实列化构建
@@ -332,6 +323,35 @@ scene_graph = build_scene_graph(image_path=image_path)
 # 构建行为特征语义空间，定义行为有哪些？路径的行为策略特征，避障行为特征语义空间，定义避障行为特征语义空间
 # 补充到终点的规则是避障行为规则来实现，根据历史记录来做的，运行轨迹来实现，共享特征语义空间时序的，行为的路径作为输入，路径作为输入来训练
 # 记录行为共享特征语义空间，作为决策的输入，存储的格式，作为决策的输入。定义一个存储的函数
+# 行为路径存储
+def behavior_path_storage():
+    # 现有的路径点坐标（每条路径有20个路径点）
+    # 假设这是20条预定义路径，每条路径由20个坐标点组成
+    paths = [
+        [(x, y) for x, y in zip(range(1, 21), range(21, 41))],  # 路径1，(1, 21), (2, 22), ..., (20, 40)
+        [(x, y) for x, y in zip(range(2, 22), range(22, 42))],  # 路径2，(2, 22), (3, 23), ..., (20, 40)
+        [(x, y) for x, y in zip(range(3, 23), range(23, 43))],  # 路径3，(3, 23), (4, 24), ..., (20, 40)
+        [(x, y) for x, y in zip(range(4, 24), range(24, 44))],  # 路径4，(4, 24), (5, 25), ..., (20, 40)
+        [(x, y) for x, y in zip(range(5, 25), range(25, 45))],  # 路径5，(5, 25), (6, 26), ..., (20, 40)
+        [(x, y) for x, y in zip(range(6, 26), range(26, 46))],  # 路径6，(6, 26), (7, 27), ..., (20, 40)
+        [(x, y) for x, y in zip(range(7, 27), range(27, 47))],  # 路径7，(7, 27), (8, 28), ..., (20, 40)
+        [(x, y) for x, y in zip(range(8, 28), range(28, 48))],  # 路径8，(8, 28), (9, 29), ..., (20, 40)
+        [(x, y) for x, y in zip(range(9, 29), range(29, 49))],  # 路径9，(9, 29), (10, 30), ..., (20, 40)
+        [(x, y) for x, y in zip(range(10, 30), range(30, 50))]  # 路径10，(10, 30), (11, 31), ..., (20, 40)
+    ]
+    # 定义一个内部函数来随机获取一条路径
+    def get_random_path():
+        return random.choice(paths)
+    # 返回路径和获取随机路径的功能
+    return paths, get_random_path
+
+# 调用 behavior_path_storage 函数
+paths, get_random_path = behavior_path_storage()
+
+# 获取并输出一条随机路径
+random_path = get_random_path()
+print("Random Path:", random_path)
+
 def plot_car_path(global_image_path, path_points, output_image_path=None):
     """
     在全局俯视图上绘制无人车的移动路径。
@@ -392,47 +412,73 @@ UPDATE_EVERY = 4          # 每隔多少步更新一次网络
 NOISE_STD_DEV = 0.2       # 动作噪声的标准差（用于探索）
 
 # Actor 网络定义
+# 定义 Actor 网络，通常用于策略网络（Policy Network）
 class Actor(nn.Module):
     def __init__(self, state_size, action_size, hidden_units=256):
+        # 初始化 Actor 网络，state_size 表示输入的状态空间大小，action_size 表示输出的动作空间大小
         super(Actor, self).__init__()
-        self.fc1 = nn.Linear(state_size, hidden_units)
-        self.fc2 = nn.Linear(hidden_units, hidden_units)
-        self.fc3 = nn.Linear(hidden_units, action_size)
+
+        # 定义三层全连接层
+        self.fc1 = nn.Linear(state_size, hidden_units)  # 第一层，将输入状态大小映射到隐藏层大小
+        self.fc2 = nn.Linear(hidden_units, hidden_units)  # 第二层，隐藏层到隐藏层
+        self.fc3 = nn.Linear(hidden_units, action_size)  # 第三层，隐藏层到输出的动作空间大小
+
+        # 使用 Tanh 激活函数将输出归一化到 [-1, 1] 范围内
         self.tanh = nn.Tanh()
 
     def forward(self, state):
-        x = torch.relu(self.fc1(state))
-        x = torch.relu(self.fc2(x))
-        return self.tanh(self.fc3(x))  # 归一化到[-1, 1]
+        # 前向传播函数，state 为输入的状态
 
-# Critic 网络定义
+        # 第一次隐藏层转换，使用 ReLU 激活函数
+        x = torch.relu(self.fc1(state))
+
+        # 第二次隐藏层转换，使用 ReLU 激活函数
+        x = torch.relu(self.fc2(x))
+
+        # 最后一层输出，并将输出映射到 [-1, 1] 范围内
+        return self.tanh(self.fc3(x))
+
+    # 定义 Critic 网络，通常用于值函数网络（Value Network）
+
 class Critic(nn.Module):
     def __init__(self, state_size, action_size, hidden_units=256):
+        # 初始化 Critic 网络，state_size 表示状态空间大小，action_size 表示动作空间大小
         super(Critic, self).__init__()
-        self.fc1 = nn.Linear(state_size, hidden_units)
-        self.fc2 = nn.Linear(action_size, hidden_units)
-        self.fc3 = nn.Linear(hidden_units, hidden_units)
-        self.fc4 = nn.Linear(hidden_units, 1)
+
+        # 定义四层全连接层
+        self.fc1 = nn.Linear(state_size, hidden_units)  # 第一层，状态空间到隐藏层
+        self.fc2 = nn.Linear(action_size, hidden_units)  # 第二层，动作空间到隐藏层
+        self.fc3 = nn.Linear(hidden_units, hidden_units)  # 第三层，隐藏层到隐藏层
+        self.fc4 = nn.Linear(hidden_units, 1)  # 第四层，输出一个值，用于表示 Q 值（动作价值）
 
     def forward(self, state, action):
+        # 前向传播函数，state 为输入状态，action 为输入动作
+        # 状态经过第一层隐藏层
         x = torch.relu(self.fc1(state))
+        # 动作经过第二层隐藏层
         a = torch.relu(self.fc2(action))
+        # 将状态和动作的隐藏层输出相加，然后通过第三层隐藏层
         x = torch.relu(self.fc3(x + a))
+        # 输出 Q 值，表示该状态-动作对的价值
         return self.fc4(x)
 
-# 经验回放缓冲区
+# 经验回放缓冲区，用于存储智能体与环境交互的经验
 class ReplayBuffer:
     def __init__(self, buffer_size, batch_size):
-        self.memory = deque(maxlen=buffer_size)
-        self.batch_size = batch_size
+        # 初始化缓冲区的大小和批量大小
+        self.memory = deque(maxlen=buffer_size)  # 使用 deque 数据结构，支持高效的队列操作
+        self.batch_size = batch_size  # 每次从缓冲区采样的批量大小
 
     def add(self, experience):
+        # 向缓冲区中添加经验
         self.memory.append(experience)
 
     def sample(self):
+        # 从缓冲区中随机抽取一个批次的经验
         return random.sample(self.memory, self.batch_size)
 
     def __len__(self):
+        # 返回缓冲区中存储的经验数量
         return len(self.memory)
 
 # DDPG 算法实现
@@ -526,23 +572,37 @@ class DDPG:
         self.learn()
 
 # Ornstein-Uhlenbeck噪声生成器
+# 定义一个 Ornstein-Uhlenbeck 噪声类（用于增强探索性）
 class OUNoise:
     def __init__(self, size, mu=0.0, theta=0.15, sigma=0.2):
-        self.mu = mu * np.ones(size)
-        self.theta = theta
-        self.sigma = sigma
-        self.size = size
-        self.state = np.copy(self.mu)
-        self.reset()
-
+        # 初始化噪声对象，size 为噪声向量的维度，mu 为噪声的均值，theta 和 sigma 为噪声的参数
+        # mu: 均值，噪声最终会趋向此值
+        # theta: 反向回复的速度（大于 0 会让噪声慢慢靠近均值）
+        # sigma: 噪声的标准差，控制噪声的幅度
+        self.mu = mu * np.ones(size)  # 用均值初始化噪声向量
+        self.theta = theta  # 控制噪声回复的强度
+        self.sigma = sigma  # 控制噪声的随机性
+        self.size = size  # 噪声的维度
+        self.state = np.copy(self.mu)  # 当前的噪声状态，初始化为均值
+        self.reset()  # 初始化时调用重置函数
     def reset(self):
+        """
+        重置噪声状态，将状态恢复为均值
+        """
         self.state = np.copy(self.mu)
-
     def sample(self):
+        """
+        从 Ornstein-Uhlenbeck 过程生成一个新的噪声样本
+        该样本基于之前的状态和噪声过程的参数生成
+        """
+        # Ornstein-Uhlenbeck 过程：dx = θ(μ - x) + σ * N(0,1)
+        # θ(μ - x): 向均值 μ 收敛的力量
+        # σ * N(0,1): 添加正态分布噪声
         dx = self.theta * (self.mu - self.state) + self.sigma * np.random.randn(self.size)
+        # 更新当前噪声状态
         self.state = self.state + dx
+        # 返回新的噪声样本
         return self.state
-
 
 # 训练DDPG模型
 def train_ddpg(env, n_episodes=1000):
@@ -609,7 +669,6 @@ class Actor(nn.Module):
         x = torch.relu(self.fc2(x))
         return self.tanh(self.fc3(x))
 
-
 # Critic 网络定义
 class Critic(nn.Module):
     def __init__(self, state_size, action_size, hidden_units=256):
@@ -624,7 +683,6 @@ class Critic(nn.Module):
         a = torch.relu(self.fc2(action))
         x = torch.relu(self.fc3(x + a))
         return self.fc4(x)
-
 
 # 经验回放缓冲区
 class ReplayBuffer:
@@ -666,36 +724,206 @@ class OUNoise:
 # 加上注释
 def ddpg(env, actor_local, actor_target, critic_local, critic_target, actor_optimizer, critic_optimizer,
          memory, noise, n_episodes=1000, gamma=0.99, tau=1e-3, batch_size=64, update_every=4):
+    """
+    训练 Deep Deterministic Policy Gradient (DDPG) 智能体
+
+    参数：
+    - env: 环境对象，用于与环境交互
+    - actor_local: 本地 Actor 网络，用于选择动作
+    - actor_target: 目标 Actor 网络，用于更新目标策略
+    - critic_local: 本地 Critic 网络，用于估计值函数
+    - critic_target: 目标 Critic 网络，用于计算目标值函数
+    - actor_optimizer: Actor 网络的优化器
+    - critic_optimizer: Critic 网络的优化器
+    - memory: 经验回放缓冲区，存储智能体与环境的交互数据
+    - noise: 噪声对象，用于探索（Ornstein-Uhlenbeck 噪声）
+    - n_episodes: 训练的总回合数
+    - gamma: 折扣因子，用于计算未来奖励的加权平均
+    - tau: 软更新参数，用于更新目标网络
+    - batch_size: 每次训练时从经验回放中抽取的样本大小
+    - update_every: 每 `update_every` 回合进行一次学习
+
+    返回：
+    - scores: 存储每个回合的得分
+    """
+
+    # 用于存储每回合的得分
     scores = []
+
+    # 训练 `n_episodes` 回合
     for episode in range(n_episodes):
-        state = env.reset()
-        noise.reset()
-        score = 0
+        # 每回合开始时重置环境和噪声状态
+        state = env.reset()  # 获取环境的初始状态
+        noise.reset()  # 重置噪声（确保每回合的噪声从头开始）
+        score = 0  # 每回合的得分初始化为 0
 
+        # 持续进行直到当前回合结束
         while True:
+            # 根据当前状态选择动作（通过本地 Actor 网络）
             action = actor_local(torch.from_numpy(state).float().to(device)).cpu().data.numpy()
-            action += noise.sample()
-            action = np.clip(action, -1, 1)
+            action += noise.sample()  # 加上噪声以增加探索性
+            action = np.clip(action, -1, 1)  # 将动作限制在有效范围内（假设动作范围是 [-1, 1]）
 
+            # 执行动作并与环境交互，获得新的状态、奖励和终止标志
             next_state, reward, done, _ = env.step(action)
 
+            # 将经历的 (状态, 动作, 奖励, 下一状态, 是否完成) 存储到经验回放中
             memory.add((state, action, reward, next_state, done))
 
+            # 如果经验回放中有足够的样本，开始学习
             if len(memory) > batch_size:
-                learn(memory, actor_local, actor_target, critic_local, critic_target, actor_optimizer, critic_optimizer,
-                      gamma, tau, batch_size)
+                learn(memory, actor_local, actor_target, critic_local, critic_target,
+                      actor_optimizer, critic_optimizer, gamma, tau, batch_size)
 
+            # 更新状态为下一状态，并累加本回合的奖励
             state = next_state
             score += reward
 
+            # 如果回合结束（done为True），退出循环
             if done:
                 break
 
+        # 将当前回合的得分添加到得分列表中
         scores.append(score)
+
+        # 打印当前回合的进度和得分
         print(f"Episode {episode + 1}/{n_episodes}, Score: {score}")
 
+    # 返回每个回合的得分列表
     return scores
 
+# 小问题波动，可以通过调整决策模块的超参数来优化决策
+def adjust_hyperparameters_based_on_vehicle_behavior(time_steps, steering_angles, speeds, delta_time,
+                                                     max_angle_change=25.0, max_time_inactive=5.0,
+                                                        angle_threshold=20, speed_threshold=0.03):
+    """
+    根据无人车的行为调整超参数，如转向平滑性和停滞状态。
+
+    参数：
+    - time_steps: 时间步的列表（单位：秒）。
+    - steering_angles: 对应每个时间步的转向角度（单位：度）。
+    - speeds: 对应每个时间步的速度（单位：米/秒）。
+    - delta_time: 时间步的持续时间（单位：秒）。
+    - max_angle_change: 转向角度最大变化（单位：度），如果超过此值，说明转向过于剧烈。
+    - max_time_inactive: 速度和方向变化小于 `speed_threshold` 且时间超过 `max_time_inactive` 时认为无人车处于停滞状态（单位：秒）。
+    - angle_threshold: 连续出现的转向角度变化超过 `max_angle_change` 的次数，超过此次数则认为需要调整超参数。
+    - speed_threshold: 速度和方向变化小于该值时，认为无人车进入了“停滞”状态。
+
+    返回：
+    - adjustments_needed: 一个布尔值列表，表示每个时间步是否需要调整超参数。
+    """
+
+    # 初始化历史记录列表
+    angle_history = []
+    speed_history = []
+    time_history = []  # 用于记录时间序列
+
+    adjustments_needed = []  # 用于存储每个时间步是否需要调整超参数的结果
+
+    for t in range(len(time_steps)):
+        time_step = time_steps[t]
+        steering_angle = steering_angles[t]
+        speed = speeds[t]
+
+        # 记录当前时间步的动作信息
+        angle_history.append(steering_angle)
+        speed_history.append(speed)
+        time_history.append(time_step)
+
+        # 检查是否需要根据无人车行为调整超参数
+        adjust = False
+
+        # 检查转向角度变化是否过大（平滑性和抖动性）
+        if len(angle_history) > angle_threshold:
+            # 检查最近 `angle_threshold` 个转向角度的变化
+            angle_changes = np.abs(np.diff(angle_history[-angle_threshold:]))
+            if np.all(angle_changes > max_angle_change):
+                adjust = True  # 需要调整超参数
+
+        # 检查是否处于停滞状态：速度和方向变化小于 `speed_threshold` 且时间超过 `max_time_inactive`
+        if len(speed_history) > 1:
+            speed_diff = np.abs(np.diff(speed_history[-2:]))  # 速度差异
+            steering_diff = np.abs(np.diff(angle_history[-2:]))  # 转向差异
+            time_diff = np.abs(np.diff(time_history[-2:]))  # 时间差
+
+            if time_diff[0] > max_time_inactive:
+                if np.all(speed_diff < speed_threshold) and np.all(steering_diff < speed_threshold):
+                    adjust = True  # 需要调整超参数
+
+        adjustments_needed.append(adjust)  # 将当前时间步的结果添加到列表中
+
+    return adjustments_needed
+
+
+# 示例使用
+time_steps = np.arange(0, 10, 0.1)  # 模拟时间步
+steering_angles = np.random.uniform(-30, 30, len(time_steps))  # 随机生成转向角度
+speeds = np.random.uniform(0.5, 1.5, len(time_steps))  # 随机生成速度
+delta_time = 0.1  # 假设时间步长为0.1秒
+
+# 调用函数
+adjustments_needed = adjust_hyperparameters_based_on_vehicle_behavior(
+    time_steps, steering_angles, speeds, delta_time
+)
+
+# 打印结果
+for i, adjust in enumerate(adjustments_needed):
+    if adjust:
+        print(f"在时间步 {time_steps[i]} 需要调整超参数！")
+
+
+
+# 调整超参数解决不了的话，就是优化特征语义空间的模型
+def compare_segmentation_with_yolov5(deeplabv3_result_path, ground_truth_path, threshold_iou=0.5, threshold_ssim=0.7):
+    """
+    比较 DeepLabV3 分割结果与标注结果的差异，并判断是否需要使用 YOLOv5 进行语义分割。
+
+    参数:
+        deeplabv3_result_path (str): DeepLabV3 生成的分割结果图像路径。
+        ground_truth_path (str): 标注的语义分割图像路径。
+        threshold_iou (float): IoU 阈值，低于此值则认为差异过大。
+        threshold_ssim (float): SSIM 阈值，低于此值则认为差异过大。
+
+    返回:
+        bool: 如果差异过大，返回 True（表示建议使用 YOLOv5）；否则返回 False。
+    """
+
+    # 读取图像（假设为灰度图，二进制掩膜）
+    deeplabv3_result = cv2.imread(deeplabv3_result_path, cv2.IMREAD_GRAYSCALE)
+    ground_truth = cv2.imread(ground_truth_path, cv2.IMREAD_GRAYSCALE)
+
+    if deeplabv3_result is None or ground_truth is None:
+        raise FileNotFoundError("输入的图像路径无效，请检查路径。")
+
+    def compute_iou(pred_mask, true_mask):
+        """计算交并比 (IoU)"""
+        return jaccard_score(true_mask.flatten(), pred_mask.flatten(), average='macro')
+
+    def compute_ssim(pred_mask, true_mask):
+        """计算结构相似性 (SSIM)"""
+        return ssim(true_mask, pred_mask)
+
+    # 计算 IoU 和 SSIM
+    iou = compute_iou(deeplabv3_result, ground_truth)
+    ssim_value = compute_ssim(deeplabv3_result, ground_truth)
+
+    print(f"Intersection over Union (IoU): {iou:.4f}")
+    print(f"Structural Similarity Index (SSIM): {ssim_value:.4f}")
+
+    # 判断是否需要切换到 YOLOv5
+    if iou < threshold_iou or ssim_value < threshold_ssim:
+        print("差异较大，建议使用YOLOv5进行语义分割。")
+        return True  # 表示需要使用YOLOv5
+    else:
+        print("DeepLabV3分割效果良好。")
+        return False  # 表示DeepLabV3分割效果良好
+
+# 示例使用：
+# 调用函数时提供图像路径
+deeplabv3_result_path = 'deeplabv3_result.png'
+ground_truth_path = 'ground_truth.png'
+
+use_yolov5 = compare_segmentation_with_yolov5(deeplabv3_result_path, ground_truth_path)
 
 def soft_update(local_model, target_model, TAU):
     for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
