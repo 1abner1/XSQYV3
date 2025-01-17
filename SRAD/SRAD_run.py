@@ -432,93 +432,120 @@ def train_actor_critic(env_name='CartPole-v1',
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # 定义 Actor-Critic 网络
+    # 定义Actor-Critic模型
     class ActorCritic(nn.Module):
         def __init__(self, input_dim, output_dim, hidden_size):
             super(ActorCritic, self).__init__()
+
+            # 定义神经网络的层：两层全连接层（fc1, fc2），用于提取特征
+            # 一个用于生成策略输出的输出层（policy_head），一个用于生成值函数输出的输出层（value_head）
             self.fc1 = nn.Linear(input_dim, hidden_size)
             self.fc2 = nn.Linear(hidden_size, hidden_size)
-            self.policy_head = nn.Linear(hidden_size, output_dim)
-            self.value_head = nn.Linear(hidden_size, 1)
+            self.policy_head = nn.Linear(hidden_size, output_dim)  # 策略输出：每个动作的概率
+            self.value_head = nn.Linear(hidden_size, 1)  # 值函数输出：每个状态的值
 
         def forward(self, x):
-            x = torch.relu(self.fc1(x))
-            x = torch.relu(self.fc2(x))
-            policy = self.policy_head(x)
-            value = self.value_head(x)
-            return policy, value
+            # 定义前向传播过程：输入通过两层全连接层，最后分别得到策略和值
+            x = torch.relu(self.fc1(x))  # 使用ReLU激活函数
+            x = torch.relu(self.fc2(x))  # 使用ReLU激活函数
+            policy = self.policy_head(x)  # 策略输出
+            value = self.value_head(x)  # 值函数输出
+            return policy, value  # 返回策略和状态值
 
     # 初始化网络和优化器
-    model = ActorCritic(input_dim, output_dim, hidden_size).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    model = ActorCritic(input_dim, output_dim, hidden_size).to(device)  # 创建Actor-Critic模型
+    optimizer = optim.Adam(model.parameters(), lr=lr)  # 使用Adam优化器
 
     # 选择动作的函数
     def select_action(state):
+        # 将输入状态转换为Tensor并传入设备
         state = torch.tensor(state, dtype=torch.float32).to(device)
+
+        # 获取策略输出和状态值
         policy, _ = model(state)
+
+        # 通过softmax函数计算动作的概率分布
         prob = torch.softmax(policy, dim=-1)
+
+        # 使用Categorical分布从概率分布中采样动作
         dist = Categorical(prob)
+
+        # 从分布中采样一个动作
         action = dist.sample()
+
+        # 返回选定的动作、动作的对数概率以及该分布的熵（用于entropy regularization）
         return action.item(), dist.log_prob(action), dist.entropy()
 
     # 计算优势函数
     def compute_advantage(rewards, values, next_value, gamma):
         returns = []
-        next_value = next_value.detach().item()
+        next_value = next_value.detach().item()  # 将下一状态的值转换为普通数值
+
+        # 从最后一步往前计算每个时间步的返回值（优势函数）
         for reward, value in zip(rewards[::-1], values[::-1]):
-            return_ = reward + gamma * next_value
+            return_ = reward + gamma * next_value  # 计算返回值，gamma是折扣因子
             returns.append(return_)
-            next_value = value.detach().item()
-        return returns[::-1]
+            next_value = value.detach().item()  # 更新下一状态的值
+        return returns[::-1]  # 反转返回列表，返回从第一个时间步开始的返回值
 
     # 训练过程
     for episode in range(n_episodes):
-        state = env.reset()
-        episode_reward = 0
-        done = False
-        log_probs = []
-        values = []
-        rewards = []
+        state = env.reset()  # 重置环境，获取初始状态
+        episode_reward = 0  # 初始化本轮的奖励
+        done = False  # 初始化done标志
+        log_probs = []  # 存储每个动作的对数概率
+        values = []  # 存储每个状态的值
+        rewards = []  # 存储每个时间步的奖励
 
         for t in range(max_timesteps):
+            # 选择动作并计算动作的对数概率、熵
             action, log_prob, entropy = select_action(state)
+
+            # 执行动作，得到下一个状态、奖励和done标志
             next_state, reward, done, _ = env.step(action)
 
-            # 存储
+            # 存储log概率和奖励
             log_probs.append(log_prob)
             rewards.append(reward)
 
+            # 将当前状态转换为Tensor并传入设备
             state_tensor = torch.tensor(state, dtype=torch.float32).to(device)
+
+            # 获取当前状态的值
             _, value = model(state_tensor)
+
+            # 存储当前状态的值
             values.append(value)
 
-            state = next_state
-            episode_reward += reward
+            state = next_state  # 更新状态
+            episode_reward += reward  # 累加奖励
 
+            # 如果done为True，表示当前episode结束，跳出循环
             if done:
                 break
 
-        # 计算目标值（返回值）
+        # 计算目标值（返回值）：计算下一个状态的值并得到优势函数
         next_state_tensor = torch.tensor(next_state, dtype=torch.float32).to(device)
         _, next_value = model(next_state_tensor)
         returns = compute_advantage(rewards, values, next_value, gamma)
 
-        # 转换为Tensor
+        # 转换为Tensor并移动到设备
         returns = torch.tensor(returns, dtype=torch.float32).to(device)
-        log_probs = torch.stack(log_probs).to(device)
-        values = torch.stack(values).squeeze().to(device)
+        log_probs = torch.stack(log_probs).to(device)  # 将log概率转为Tensor
+        values = torch.stack(values).squeeze().to(device)  # 将值函数转为Tensor并去除多余的维度
 
         # 计算损失
-        advantage = returns - values
-        policy_loss = -log_probs * advantage.detach()
-        value_loss = advantage.pow(2)
+        advantage = returns - values  # 计算优势
+        policy_loss = -log_probs * advantage.detach()  # 策略损失：取log概率与优势的乘积
+        value_loss = advantage.pow(2)  # 值函数损失：优势的平方
 
-        # 总损失
+        # 总损失：策略损失与值函数损失的平均
         loss = policy_loss.mean() + value_loss.mean()
 
         # 更新网络
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        optimizer.zero_grad()  # 清空梯度
+        loss.backward()  # 反向传播计算梯度
+        optimizer.step()  # 更新参数
 
         # 打印进度
         if (episode + 1) % 100 == 0:

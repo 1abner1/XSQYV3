@@ -387,40 +387,76 @@ def multi_actor_critic_training(state_dim, action_dim, n_actors=3, n_critics=3, 
 
     class Critic(nn.Module):
         def __init__(self, state_dim):
-            super(Critic, self).__init__()
+            super(Critic, self).__init__()  # 调用父类的初始化方法
+
+            # 定义神经网络的三层全连接层（fc1, fc2, fc3）
+            # fc1: 输入维度是state_dim，输出维度是128
             self.fc1 = nn.Linear(state_dim, 128)
+
+            # fc2: 输入维度是128，输出维度是64
             self.fc2 = nn.Linear(128, 64)
+
+            # fc3: 输入维度是64，输出维度是1（因为我们要预测状态的价值）
             self.fc3 = nn.Linear(64, 1)  # 输出一个值，评估状态的价值
 
         def forward(self, state):
+            # 前向传播过程：将输入状态通过三层全连接层进行处理
+
+            # 使用ReLU激活函数对第一层的输出进行非线性变换
             x = torch.relu(self.fc1(state))
+
+            # 使用ReLU激活函数对第二层的输出进行非线性变换
             x = torch.relu(self.fc2(x))
+
+            # 最后一层的输出是状态的价值，不使用激活函数（线性输出）
             value = self.fc3(x)
+
+            # 返回状态的价值
             return value
 
     class ExperienceReplay:
         def __init__(self, capacity=10000):
+            # 初始化经验回放缓冲区，设置最大容量为capacity
             self.capacity = capacity
+            # 使用deque作为存储结构，deque在插入和删除元素时效率较高
             self.buffer = deque(maxlen=capacity)
 
         def push(self, state, action, reward, next_state, done):
+            # 将一个新的经验（状态，动作，奖励，下一状态，是否结束）添加到回放缓冲区
+            # 这个经验会作为一个元组存储
             self.buffer.append((state, action, reward, next_state, done))
 
         def sample(self, batch_size):
+            # 从回放缓冲区随机采样一个batch的经验
+            # batch_size决定了采样的数量
             return random.sample(self.buffer, batch_size)
 
         def size(self):
+            # 返回当前回放缓冲区中存储的经验数量
             return len(self.buffer)
 
-    # 初始化多演员、多评论家及其他组件
+    # 初始化多个Actor（智能体的策略网络），每个Actor用于处理不同的环境实例或不同的策略
+    # n_actors表示有多少个Actor，state_dim是状态维度，action_dim是动作维度
     actors = [Actor(state_dim, action_dim) for _ in range(n_actors)]
+
+    # 初始化多个Critic（状态价值估计网络），每个Critic用于估计不同的状态值
+    # n_critics表示有多少个Critic，state_dim是状态维度
     critics = [Critic(state_dim) for _ in range(n_critics)]
+
+    # 初始化一个主Critic，用于估计主策略的状态值
     main_critic = Critic(state_dim)
 
+    # 初始化每个Actor的优化器，这里使用Adam优化器，学习率为lr
     actor_optimizers = [optim.Adam(actor.parameters(), lr=lr) for actor in actors]
+
+    # 初始化每个Critic的优化器，使用Adam优化器，学习率为lr
     critic_optimizers = [optim.Adam(critic.parameters(), lr=lr) for critic in critics]
+
+    # 初始化主Critic的优化器，使用Adam优化器，学习率为lr
     main_critic_optimizer = optim.Adam(main_critic.parameters(), lr=lr)
 
+    # 初始化经验回放缓冲区，指定容量为memory_capacity
+    # ExperienceReplay是用于存储智能体与环境交互经验的缓冲区
     memory = ExperienceReplay(capacity=memory_capacity)
 
     def normalize(values, min_val=0.0, max_val=1.0):
